@@ -246,13 +246,22 @@ class AppleSimUtils {
   }
 
   async setLocation(udid, lat, lon) {
-    const result = await exec.execWithRetriesAndLogs(`which fbsimctl`, { retries: 1 });
-    if (_.get(result, 'stdout')) {
-      await exec.execWithRetriesAndLogs(`fbsimctl ${udid} set_location ${lat} ${lon}`, { retries: 1 });
-    } else {
-      throw new DetoxRuntimeError(`setLocation currently supported only through fbsimctl.
-      Install fbsimctl using:
-      "brew tap facebook/fb && export CODE_SIGNING_REQUIRED=NO && brew install fbsimctl"`);
+    try {
+      await this._execAppleSimUtils({
+        args: `--byId ${udid} --setLocation "[${lat}, ${lon}]"`,
+      });
+    } catch (e) {
+      const stderr = e && e.stderr || '';
+
+      if (stderr.match(/Unknown command line option.*--setLocation/)) {
+        throw new DetoxRuntimeError({
+          message: `Failed to set the location (${lat}, ${lon}) on the device ${udid}.`
+          + '\nYour current "applesimutils" version needs to be upgraded to 0.9.3 or higher.',
+          hint: 'Try running:\n  brew update && brew upgrade applesimutils',
+        });
+      }
+
+      throw e;
     }
   }
 
@@ -286,7 +295,26 @@ class AppleSimUtils {
 
   async _execAppleSimUtils(options) {
     const bin = `applesimutils`;
-    return await exec.execWithRetriesAndLogs(bin, options);
+    try {
+      return await exec.execWithRetriesAndLogs(bin, options);
+    } catch (e) {
+      const stderr = e && e.stderr || '';
+
+      if (stderr.match(/applesimutils: command not found/m)) {
+        throw new DetoxRuntimeError({
+          message: `Detox failed to find "applesimutils" installed on the computer.\n`
+          + 'It is impossible to run tests on iOS simulators without this utility.',
+          hint: [
+            'To install "applesimutils", run:',
+            '  brew tap wix/brew',
+            '  brew install applesimutils',
+          ].join('\n'),
+        });
+      }
+
+      throw e;
+
+    }
   }
 
   async _execSimctl({ cmd, statusLogs = {}, retries = 1, silent = false }) {
